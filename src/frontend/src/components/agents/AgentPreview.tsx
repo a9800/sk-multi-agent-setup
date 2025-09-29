@@ -180,6 +180,8 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   const handleOrchestrationModeChange = async (enabled: boolean) => {
     console.log(`[OrchestrationToggle] Changing orchestration mode to: ${enabled}`);
     setIsOrchestrationMode(enabled);
+    // Store in immediate value for synchronous access
+    (window as any).isOrchestrationModeImmediate = enabled;
     
     if (!enabled) {
       // Clear orchestration state when disabling
@@ -323,6 +325,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   useEffect(() => {
     // Initialize immediate values
     (window as any).showAgentThinkingImmediate = showAgentThinking;
+    (window as any).isOrchestrationModeImmediate = isOrchestrationMode;
     
     return () => {
       stopAgentThinkingPolling();
@@ -357,31 +360,38 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     setMessageList((prev) => [...prev, userMessage]);
 
     try {
-      // ALWAYS check backend orchestration status directly, don't rely on React state
+      // Check if user has orchestration enabled in UI first (use immediate value to avoid React timing issues)
+      const isOrchestrationModeImmediate = (window as any).isOrchestrationModeImmediate ?? isOrchestrationMode;
       let useOrchestration = false;
       
-      console.log("[ChatClient] Checking backend orchestration status...");
-      try {
-        const statusResponse = await fetch('/orchestration/status');
-        if (statusResponse.ok) {
-          const statusData = await statusResponse.json();
-          if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
-            console.log("[ChatClient] Backend orchestration is initialized, will use orchestration");
-            useOrchestration = true;
-            // Update React state to match backend reality
-            if (!orchestrationInitialized) {
-              setOrchestrationInitialized(true);
-            }
-          } else {
-            console.log("[ChatClient] Backend orchestration not initialized, will use single agent");
-            // Update React state to match backend reality
-            if (orchestrationInitialized) {
-              setOrchestrationInitialized(false);
+      if (isOrchestrationModeImmediate) {
+        // Only check backend status if UI orchestration is enabled
+        console.log("[ChatClient] UI orchestration enabled (immediate check), checking backend status...");
+        try {
+          const statusResponse = await fetch('/orchestration/status');
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
+              console.log("[ChatClient] Backend orchestration is initialized, will use orchestration");
+              useOrchestration = true;
+              // Update React state to match backend reality
+              if (!orchestrationInitialized) {
+                setOrchestrationInitialized(true);
+              }
+            } else {
+              console.log("[ChatClient] Backend orchestration not initialized, will use single agent");
+              // Update React state to match backend reality
+              if (orchestrationInitialized) {
+                setOrchestrationInitialized(false);
+              }
             }
           }
+        } catch (error) {
+          console.error("[ChatClient] Error checking orchestration status:", error);
+          useOrchestration = false;
         }
-      } catch (error) {
-        console.error("[ChatClient] Error checking orchestration status:", error);
+      } else {
+        console.log("[ChatClient] UI orchestration disabled (immediate check), using single agent");
         useOrchestration = false;
       }
 
