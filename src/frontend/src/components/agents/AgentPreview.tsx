@@ -177,23 +177,60 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   };
 
   // Orchestration management functions
-  const handleOrchestrationModeChange = (enabled: boolean) => {
+  const handleOrchestrationModeChange = async (enabled: boolean) => {
     console.log(`[OrchestrationToggle] Changing orchestration mode to: ${enabled}`);
     setIsOrchestrationMode(enabled);
+    
     if (!enabled) {
       // Clear orchestration state when disabling
       console.log("[OrchestrationToggle] Disabling orchestration, clearing state");
       setOrchestrationInitialized(false);
     } else {
-      // Check current orchestration status when enabling
-      console.log("[OrchestrationToggle] Enabling orchestration, checking status");
-      fetchOrchestrationStatus();
+      // When enabling orchestration, immediately check and try to initialize
+      console.log("[OrchestrationToggle] Enabling orchestration, checking and initializing if needed");
+      
+      try {
+        // First check if already initialized
+        const statusResponse = await fetch('/orchestration/status');
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
+            console.log("[OrchestrationToggle] Orchestration already initialized");
+            setOrchestrationInitialized(true);
+            return;
+          }
+        }
+        
+        // If not initialized, initialize it immediately
+        console.log("[OrchestrationToggle] Orchestration not initialized, initializing now...");
+        const initResponse = await fetch('/orchestration/initialize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            agent_ids: orchestrationAgentIds.split(',').map(id => id.trim()) 
+          })
+        });
+        
+        if (initResponse.ok) {
+          const initData = await initResponse.json();
+          if (initData.status === 'success') {
+            console.log("[OrchestrationToggle] Successfully initialized orchestration");
+            setOrchestrationInitialized(true);
+          } else {
+            console.error("[OrchestrationToggle] Failed to initialize orchestration:", initData);
+          }
+        }
+      } catch (error) {
+        console.error("[OrchestrationToggle] Error during orchestration setup:", error);
+      }
     }
   };
 
   const handleShowAgentThinkingChange = (enabled: boolean) => {
     console.log(`[AgentThinking] Changing show agent thinking to: ${enabled}`);
     setShowAgentThinking(enabled);
+    // Store in a ref for immediate access
+    (window as any).showAgentThinkingImmediate = enabled;
   };
 
   // Helper function to get display name based on orchestration mode
@@ -230,12 +267,18 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   // Agent thinking functions
   const fetchAgentThinking = async () => {
     try {
+      console.log("[AgentThinking] Fetching agent thinking messages...");
       const response = await fetch('/orchestration/agent-thinking');
       if (response.ok) {
         const data = await response.json();
         if (data.status === 'success') {
+          console.log(`[AgentThinking] Received ${data.messages?.length || 0} thinking messages`);
           setAgentThinkingMessages(data.messages || []);
+        } else {
+          console.log("[AgentThinking] Response not successful:", data);
         }
+      } else {
+        console.log("[AgentThinking] Response not OK:", response.status);
       }
     } catch (error) {
       console.error('Error fetching agent thinking:', error);
@@ -243,7 +286,9 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   };
 
   const startAgentThinkingPolling = () => {
-    if (showAgentThinking && isOrchestrationMode && !isPollingThinking) {
+    const showAgentThinkingImmediate = (window as any).showAgentThinkingImmediate ?? showAgentThinking;
+    if (showAgentThinkingImmediate && !isPollingThinking) {
+      console.log("[AgentThinking] Starting agent thinking polling");
       setIsPollingThinking(true);
       const pollInterval = setInterval(async () => {
         await fetchAgentThinking();
@@ -276,6 +321,9 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
 
   // Cleanup polling on component unmount
   useEffect(() => {
+    // Initialize immediate values
+    (window as any).showAgentThinkingImmediate = showAgentThinking;
+    
     return () => {
       stopAgentThinkingPolling();
     };
@@ -309,26 +357,32 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     setMessageList((prev) => [...prev, userMessage]);
 
     try {
-      // Double-check orchestration status if orchestration mode is enabled
-      let useOrchestration = isOrchestrationMode && orchestrationInitialized;
+      // ALWAYS check backend orchestration status directly, don't rely on React state
+      let useOrchestration = false;
       
-      if (isOrchestrationMode && !orchestrationInitialized) {
-        console.log("[ChatClient] Orchestration mode enabled but not initialized, checking status...");
-        
-        // Quick status check to see if orchestration is actually initialized
-        try {
-          const statusResponse = await fetch('/orchestration/status');
-          if (statusResponse.ok) {
-            const statusData = await statusResponse.json();
-            if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
-              console.log("[ChatClient] Orchestration is actually initialized, updating state and using orchestration");
+      console.log("[ChatClient] Checking backend orchestration status...");
+      try {
+        const statusResponse = await fetch('/orchestration/status');
+        if (statusResponse.ok) {
+          const statusData = await statusResponse.json();
+          if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
+            console.log("[ChatClient] Backend orchestration is initialized, will use orchestration");
+            useOrchestration = true;
+            // Update React state to match backend reality
+            if (!orchestrationInitialized) {
               setOrchestrationInitialized(true);
-              useOrchestration = true;
+            }
+          } else {
+            console.log("[ChatClient] Backend orchestration not initialized, will use single agent");
+            // Update React state to match backend reality
+            if (orchestrationInitialized) {
+              setOrchestrationInitialized(false);
             }
           }
-        } catch (statusError) {
-          console.error("[ChatClient] Error checking orchestration status:", statusError);
         }
+      } catch (error) {
+        console.error("[ChatClient] Error checking orchestration status:", error);
+        useOrchestration = false;
       }
 
       // Choose endpoint based on orchestration mode AND initialization status
@@ -340,8 +394,12 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       setIsResponding(true);
       
       // Start agent thinking polling if enabled and using orchestration
-      if (useOrchestration && showAgentThinking) {
+      const showAgentThinkingImmediate = (window as any).showAgentThinkingImmediate ?? showAgentThinking;
+      if (useOrchestration && showAgentThinkingImmediate) {
+        console.log(`[AgentThinking] Starting polling: useOrchestration=${useOrchestration}, showAgentThinking=${showAgentThinkingImmediate} (immediate check)`);
         startAgentThinkingPolling();
+      } else {
+        console.log(`[AgentThinking] NOT starting polling: useOrchestration=${useOrchestration}, showAgentThinking=${showAgentThinkingImmediate} (immediate check)`);
       }
       
       const response = await fetch(endpoint, {
@@ -727,7 +785,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
               )}
               
               {/* Agent Thinking Display */}
-              {showAgentThinking && isOrchestrationMode && agentThinkingMessages.length > 0 && (
+              {showAgentThinking && agentThinkingMessages.length > 0 && (
                 <div style={{ 
                   marginBottom: "16px", 
                   padding: "12px", 
