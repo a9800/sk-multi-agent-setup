@@ -500,15 +500,24 @@ async def orchestrated_chat(
     """Process a query using SK multi-agent orchestration."""
     try:
         data = await request.json()
-        query = data.get("query", "") or data.get("message", "")  # Accept both query and message for compatibility
+        original_query = data.get("query", "") or data.get("message", "")  # Accept both query and message for compatibility
         
-        if not query:
+        if not original_query:
             raise HTTPException(status_code=400, detail="query or message is required")
         
-        logger.info(f"Processing orchestrated query: {query}")
+        # Get prepend message from environment variable
+        prepend_message = os.getenv("ORCHESTRATION_PREPEND_MESSAGE", "")
         
-        # Process the query using orchestration
-        result = await process_orchestrated_query(query)
+        # Combine prepend message with user query if prepend message exists
+        if prepend_message:
+            enhanced_query = prepend_message + original_query
+            logger.info(f"Processing orchestrated query with prepend: {original_query}")
+        else:
+            enhanced_query = original_query
+            logger.info(f"Processing orchestrated query: {original_query}")
+        
+        # Process the enhanced query using orchestration
+        result = await process_orchestrated_query(enhanced_query)
         
         return JSONResponse({
             "status": "success",
