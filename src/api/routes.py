@@ -37,7 +37,9 @@ from .sk_orchestration_service import (
     get_orchestration_service,
     initialize_orchestration,
     process_orchestrated_query,
-    cleanup_orchestration
+    cleanup_orchestration,
+    get_agent_thinking_messages,
+    clear_agent_thinking_messages
 )
 
 
@@ -531,3 +533,36 @@ async def cleanup_sk_orchestration(_ = auth_dependency):
     except Exception as e:
         logger.error(f"Error cleaning up SK orchestration: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to cleanup orchestration: {str(e)}")
+
+
+@router.get("/orchestration/agent-thinking")
+async def get_orchestration_agent_thinking(_ = auth_dependency):
+    """Get agent thinking messages from the orchestration service."""
+    try:
+        messages = await get_agent_thinking_messages()
+        
+        return JSONResponse({
+            "status": "success",
+            "messages": messages,
+            "count": len(messages)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting agent thinking messages: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get agent thinking: {str(e)}")
+
+
+@router.post("/orchestration/agent-thinking/clear")
+async def clear_orchestration_agent_thinking(_ = auth_dependency):
+    """Clear agent thinking messages from the orchestration service."""
+    try:
+        await clear_agent_thinking_messages()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "Agent thinking messages cleared successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error clearing agent thinking messages: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to clear agent thinking: {str(e)}")

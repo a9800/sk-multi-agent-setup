@@ -8,6 +8,7 @@ Semantic Kernel's Magentic Orchestrator for coordinated multi-agent conversation
 import asyncio
 import logging
 import os
+import time
 from typing import List, Optional, Any, Dict
 from azure.identity import DefaultAzureCredential
 
@@ -35,6 +36,9 @@ class SKOrchestrationService:
         self.agents = {}
         self.orchestration = None
         self.runtime = None
+        # Store agent thinking messages for the current session
+        self.agent_thinking_messages = []
+        self.current_session_id = None
         
         if not self.endpoint:
             raise ValueError("AZURE_EXISTING_AIPROJECT_ENDPOINT or AZURE_AI_AGENT_ENDPOINT environment variable is required")
@@ -124,6 +128,9 @@ class SKOrchestrationService:
         try:
             logger.info(f"Processing orchestrated query: {query}")
             
+            # Clear previous agent thinking messages for this new query
+            self.clear_agent_thinking_messages()
+            
             # First, cleanup any active runs to prevent thread conflicts
             await self.cleanup_active_runs()
             
@@ -143,9 +150,16 @@ class SKOrchestrationService:
             # Create the Magentic Manager
             manager = StandardMagenticManager(chat_completion_service=chat_completion)
             
-            # Agent response callback for logging
+            # Agent response callback for capturing agent thinking
             def agent_response_callback(message: ChatMessageContent) -> None:
-                logger.info(f"**{message.name}**\\n{message.content}")
+                thinking_entry = {
+                    "timestamp": time.time(),
+                    "agent_name": message.name or "Unknown Agent",
+                    "content": str(message.content) if message.content else "",
+                    "message_type": "agent_thinking"
+                }
+                self.agent_thinking_messages.append(thinking_entry)
+                logger.info(f"**{message.name}**\\n{message.content}")  # Still log for debugging
             
             # Create the Magentic Orchestration
             orchestration = MagenticOrchestration(
@@ -200,6 +214,20 @@ class SKOrchestrationService:
                 "agents_used": list(self.agents.keys()),
                 "query": query
             }
+    
+    def get_agent_thinking_messages(self) -> List[Dict[str, Any]]:
+        """
+        Get stored agent thinking messages.
+        
+        Returns:
+            List of agent thinking messages
+        """
+        return self.agent_thinking_messages.copy()
+    
+    def clear_agent_thinking_messages(self) -> None:
+        """Clear stored agent thinking messages."""
+        self.agent_thinking_messages.clear()
+        logger.info("Cleared agent thinking messages")
     
     async def cleanup(self) -> None:
         """Clean up resources."""
@@ -277,3 +305,13 @@ async def cleanup_orchestration() -> None:
     if _orchestration_service:
         await _orchestration_service.cleanup()
         _orchestration_service = None
+
+async def get_agent_thinking_messages() -> List[Dict[str, Any]]:
+    """Get agent thinking messages from the orchestration service."""
+    service = await get_orchestration_service()
+    return service.get_agent_thinking_messages()
+
+async def clear_agent_thinking_messages() -> None:
+    """Clear agent thinking messages from the orchestration service."""
+    service = await get_orchestration_service()
+    service.clear_agent_thinking_messages()

@@ -26,6 +26,8 @@ export interface ISettingsPanelProps {
   orchestrationInitialized: boolean;
   onInitializeOrchestration: () => Promise<void>;
   onCleanupOrchestration: () => Promise<void>;
+  showAgentThinking: boolean;
+  onShowAgentThinkingChange: (enabled: boolean) => void;
   agentDetails: any;
 }
 
@@ -39,6 +41,8 @@ export function SettingsPanel({
   orchestrationInitialized,
   onInitializeOrchestration,
   onCleanupOrchestration,
+  showAgentThinking,
+  onShowAgentThinkingChange,
   agentDetails,
 }: ISettingsPanelProps): JSX.Element {
   return (
@@ -97,6 +101,16 @@ export function SettingsPanel({
                   placeholder="asst_123, asst_456, asst_789"
                 />
               </Field>
+
+              <Field label="Show Agent Thinking">
+                <Switch
+                  checked={showAgentThinking}
+                  onChange={(_, data) => onShowAgentThinkingChange(data.checked)}
+                />
+              </Field>
+              <p style={{ fontSize: '12px', color: 'var(--colorNeutralForeground3)', margin: '4px 0 16px 0' }}>
+                Display what each agent is thinking during the orchestration process
+              </p>
 
               <div className={styles.orchestrationActions}>
                 {!orchestrationInitialized ? (

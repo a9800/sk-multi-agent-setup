@@ -86,6 +86,9 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [orchestrationInitialized, setOrchestrationInitialized] = useState(false);
   const [orchestrationAgentIds, setOrchestrationAgentIds] = useState("asst_zukqFOaveIg3MnsZKVNTlOYz,asst_4pgepxxILUlOPYhfJlwdIZtJ,asst_QodeNV9JgOLhp2nEG6pDFbLN");
+  const [showAgentThinking, setShowAgentThinking] = useState(false);
+  const [agentThinkingMessages, setAgentThinkingMessages] = useState<any[]>([]);
+  const [isPollingThinking, setIsPollingThinking] = useState(false);
 
   const loadChatHistory = async () => {
     try {
@@ -188,6 +191,16 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     }
   };
 
+  const handleShowAgentThinkingChange = (enabled: boolean) => {
+    console.log(`[AgentThinking] Changing show agent thinking to: ${enabled}`);
+    setShowAgentThinking(enabled);
+  };
+
+  // Helper function to get display name based on orchestration mode
+  const getDisplayName = () => {
+    return isOrchestrationMode && orchestrationInitialized ? "Multi-Agent" : agentDetails.name;
+  };
+
   const handleInitializeOrchestration = async () => {
     try {
       const response = await fetch('/orchestration/initialize', {
@@ -214,12 +227,59 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     }
   };
 
+  // Agent thinking functions
+  const fetchAgentThinking = async () => {
+    try {
+      const response = await fetch('/orchestration/agent-thinking');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success') {
+          setAgentThinkingMessages(data.messages || []);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching agent thinking:', error);
+    }
+  };
+
+  const startAgentThinkingPolling = () => {
+    if (showAgentThinking && isOrchestrationMode && !isPollingThinking) {
+      setIsPollingThinking(true);
+      const pollInterval = setInterval(async () => {
+        await fetchAgentThinking();
+      }, 1000); // Poll every second during orchestration
+
+      // Store interval ID for cleanup
+      (window as any).agentThinkingInterval = pollInterval;
+    }
+  };
+
+  const stopAgentThinkingPolling = () => {
+    setIsPollingThinking(false);
+    if ((window as any).agentThinkingInterval) {
+      clearInterval((window as any).agentThinkingInterval);
+      (window as any).agentThinkingInterval = null;
+    }
+  };
+
+  const stopRespondingAndPolling = () => {
+    setIsResponding(false);
+    stopAgentThinkingPolling();
+  };
+
   // Check orchestration status on component mount
   useEffect(() => {
     if (isOrchestrationMode) {
       fetchOrchestrationStatus();
     }
   }, [isOrchestrationMode]);
+
+  // Cleanup polling on component unmount
+  useEffect(() => {
+    return () => {
+      stopAgentThinkingPolling();
+    };
+  }, []);
 
   const newThread = () => {
     setMessageList([]);
@@ -278,6 +338,12 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       console.log(`[ChatClient] Using endpoint: ${endpoint} (orchestrationMode: ${isOrchestrationMode}, initialized: ${orchestrationInitialized}, useOrchestration: ${useOrchestration})`);
       
       setIsResponding(true);
+      
+      // Start agent thinking polling if enabled and using orchestration
+      if (useOrchestration && showAgentThinking) {
+        startAgentThinkingPolling();
+      }
+      
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -331,7 +397,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
           };
           setMessageList((prev) => [...prev, errorMessage]);
         }
-        setIsResponding(false);
+        stopRespondingAndPolling();
       } else {
         // Regular chat endpoint returns streaming response
         if (!response.body) {
@@ -344,7 +410,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         handleMessages(response.body);
       }
     } catch (error: any) {
-      setIsResponding(false);
+      stopRespondingAndPolling();
       if (error.name === "AbortError") {
         console.log("[ChatClient] Fetch request aborted by user.");
       } else {
@@ -410,7 +476,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
                 );
               }
 
-              setIsResponding(false);
+              stopRespondingAndPolling();
               appendAssistantMessage(
                 chatItem,
                 data.error.message || "An error occurred.",
@@ -423,7 +489,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
             if (data.type === "stream_end") {
               // End of the stream
               console.log("[ChatClient] Stream end marker received.");
-              setIsResponding(false);
+              stopRespondingAndPolling();
               break;
             } else if (data.type === "thread_run") {
               // Log the run status info
@@ -447,7 +513,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
                   accumulatedContent
                 );
 
-                setIsResponding(false);
+                stopRespondingAndPolling();
               } else {
                 accumulatedContent += data.content;
                 console.log(
@@ -599,7 +665,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
                 iconName={agentDetails.metadata?.logo}
               />
               <Body1 as="h1" className={styles.agentName}>
-                {agentDetails.name}
+                {getDisplayName()}
               </Body1>
             </div>
           ) : (
@@ -654,13 +720,42 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
                     iconName={agentDetails.metadata?.logo}
                   />
                   <Caption1 className={styles.agentName}>
-                    {agentDetails.name}
+                    {getDisplayName()}
                   </Caption1>
                   <Title3>How can I help you today?</Title3>
                 </div>
               )}
+              
+              {/* Agent Thinking Display */}
+              {showAgentThinking && isOrchestrationMode && agentThinkingMessages.length > 0 && (
+                <div style={{ 
+                  marginBottom: "16px", 
+                  padding: "12px", 
+                  backgroundColor: "#f5f5f5", 
+                  borderRadius: "8px",
+                  border: "1px solid #e0e0e0"
+                }}>
+                  <h4 style={{ margin: "0 0 8px 0", fontSize: "14px", fontWeight: "600" }}>
+                    🤔 Agent Thinking Process
+                  </h4>
+                  <div style={{ maxHeight: "200px", overflowY: "auto" }}>
+                    {agentThinkingMessages.map((msg, index) => (
+                      <div key={index} style={{ 
+                        marginBottom: "8px", 
+                        padding: "8px", 
+                        backgroundColor: "white", 
+                        borderRadius: "4px",
+                        fontSize: "12px"
+                      }}>
+                        <strong>{msg.agent_name}:</strong> {msg.content}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              
               <AgentPreviewChatBot
-                agentName={agentDetails.name}
+                agentName={getDisplayName()}
                 agentLogo={agentDetails.metadata?.logo}
                 chatContext={chatContext}
               />
@@ -682,6 +777,8 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         orchestrationInitialized={orchestrationInitialized}
         onInitializeOrchestration={handleInitializeOrchestration}
         onCleanupOrchestration={handleCleanupOrchestration}
+        showAgentThinking={showAgentThinking}
+        onShowAgentThinkingChange={handleShowAgentThinkingChange}
         agentDetails={agentDetails}
       />
     </div>
