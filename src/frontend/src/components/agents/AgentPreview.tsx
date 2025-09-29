@@ -85,10 +85,13 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   // Orchestration state
   const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
   const [orchestrationInitialized, setOrchestrationInitialized] = useState(false);
-  const [orchestrationAgentIds, setOrchestrationAgentIds] = useState("asst_zukqFOaveIg3MnsZKVNTlOYz,asst_4pgepxxILUlOPYhfJlwdIZtJ,asst_QodeNV9JgOLhp2nEG6pDFbLN");
+  const [orchestrationAgentIds, setOrchestrationAgentIds] = useState("");
   const [showAgentThinking, setShowAgentThinking] = useState(false);
   const [agentThinkingMessages, setAgentThinkingMessages] = useState<any[]>([]);
   const [isPollingThinking, setIsPollingThinking] = useState(false);
+  
+  // Response timing
+  const [responseStartTime, setResponseStartTime] = useState<number | null>(null);
 
   const loadChatHistory = async () => {
     try {
@@ -155,7 +158,24 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
 
   useEffect(() => {
     loadChatHistory();
+    loadAzureConfig();
   }, []);
+
+  const loadAzureConfig = async () => {
+    try {
+      const response = await fetch("/config/azure");
+      if (response.ok) {
+        const config = await response.json();
+        if (config.defaultOrchestrationAgentIds) {
+          setOrchestrationAgentIds(config.defaultOrchestrationAgentIds);
+        }
+      } else {
+        console.warn("Failed to load Azure configuration");
+      }
+    } catch (error) {
+      console.error("Error loading Azure configuration:", error);
+    }
+  };
 
   const handleSettingsPanelOpenChange = (isOpen: boolean) => {
     setIsSettingsPanelOpen(isOpen);
@@ -422,6 +442,11 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         console.log(`[AgentThinking] NOT starting polling: useOrchestration=${useOrchestration}, showAgentThinking=${showAgentThinkingImmediate} (immediate check)`);
       }
       
+      // Start response timer right before API call - store in window object for reliability
+      const startTime = Date.now();
+      setResponseStartTime(startTime);
+      (window as any).responseStartTimeImmediate = startTime;
+      
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
@@ -456,12 +481,17 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         console.log("[ChatClient] Orchestration response:", jsonResponse);
         
         if (jsonResponse.status === 'success' && jsonResponse.orchestration_result) {
+          // Calculate response duration using reliable timer
+          const startTime = responseStartTime || (window as any).responseStartTimeImmediate;
+          const duration = startTime ? Date.now() - startTime : 0;
+          
           // Remove thinking message and add actual response
           const assistantMessage: IChatItem = {
             id: `assistant-${Date.now()}`,
             content: jsonResponse.orchestration_result.result,
             role: "assistant",
             isAnswer: true,
+            duration: duration,
             more: { time: new Date().toISOString() },
           };
           setMessageList((prev) => {
@@ -470,12 +500,16 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
             return [...withoutThinking, assistantMessage];
           });
         } else {
+          // Calculate response duration
+          const duration = responseStartTime ? Date.now() - responseStartTime : 0;
+          
           // Handle error case - remove thinking message and add error
           const errorMessage: IChatItem = {
             id: `error-${Date.now()}`,
             content: jsonResponse.error || "An error occurred during orchestration",
             role: "assistant",
             isAnswer: true,
+            duration: duration,
             more: { time: new Date().toISOString() },
           };
           setMessageList((prev) => {
@@ -499,12 +533,17 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     } catch (error: any) {
       stopRespondingAndPolling();
       
+      // Calculate response duration using reliable timer
+      const startTime = responseStartTime || (window as any).responseStartTimeImmediate;
+      const duration = startTime ? Date.now() - startTime : 0;
+      
       // Remove thinking message and add error message
       const errorMessage: IChatItem = {
         id: `error-${Date.now()}`,
         content: error.name === "AbortError" ? "Request was cancelled" : "An error occurred while processing your request",
         role: "assistant",
         isAnswer: true,
+        duration: duration,
         more: { time: new Date().toISOString() },
       };
       
@@ -590,8 +629,26 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
 
             // Check the data type to decide how to update the UI
             if (data.type === "stream_end") {
-              // End of the stream
+              // End of the stream - calculate duration and update the message
               console.log("[ChatClient] Stream end marker received.");
+              
+              if (chatItem) {
+                const startTime = responseStartTime || (window as any).responseStartTimeImmediate;
+                const duration = startTime ? Date.now() - startTime : 0;
+                chatItem.duration = duration;
+                
+                // Update the message list with the final duration
+                setMessageList((prev) => {
+                  const index = prev.findIndex(msg => msg.id === chatItem!.id);
+                  if (index !== -1) {
+                    const updatedMessages = [...prev];
+                    updatedMessages[index] = { ...chatItem!, duration: duration };
+                    return updatedMessages;
+                  }
+                  return prev;
+                });
+              }
+              
               stopRespondingAndPolling();
               break;
             } else if (data.type === "thread_run") {

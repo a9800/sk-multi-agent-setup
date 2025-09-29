@@ -431,7 +431,8 @@ async def get_azure_config(_ = auth_dependency):
             "resourceGroup": resource_group,
             "resourceName": resource_name,
             "projectName": project_name,
-            "wsid": ai_project_resource_id
+            "wsid": ai_project_resource_id,
+            "defaultOrchestrationAgentIds": os.environ.get("DEFAULT_ORCHESTRATION_AGENT_IDS", "")
         })
     except Exception as e:
         logger.error(f"Error getting Azure config: {e}")

@@ -51,6 +51,7 @@ export function AgentPreviewChatBot({
                     : "none"
                 }
                 message={message}
+                showUsageInfo={true}
               />
             ) : (
               <UserMessage

@@ -74,6 +74,12 @@ export function AssistantMessage({
           {showUsageInfo && message.usageInfo && (
             <UsageInfo info={message.usageInfo} duration={message.duration} />
           )}
+          {/* Show duration even without usage info if available */}
+          {(!showUsageInfo || !message.usageInfo) && message.duration && (
+            <div style={{ fontSize: '12px', color: '#666', marginTop: '4px' }}>
+              Response time: {message.duration >= 1000 ? `${(message.duration / 1000).toFixed(1)}s` : `${Math.round(message.duration)}ms`}
+            </div>
+          )}
         </>
       }
       loadingState={loadingState}

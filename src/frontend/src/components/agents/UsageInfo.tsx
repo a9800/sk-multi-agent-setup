@@ -20,7 +20,7 @@ export function UsageInfo({ info, duration }: IUsageInfoProps): React.ReactEleme
       <div className={styles.usageSummary}>
         {duration !== undefined && (
           <>
-            <span>{`${duration.toFixed(0)}ms`}</span>
+            <span>{duration >= 1000 ? `${(duration / 1000).toFixed(1)}s` : `${Math.round(duration)}ms`}</span>
             <span className={styles.divider}>|</span>
           </>
         )}
