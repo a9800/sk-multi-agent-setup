@@ -13,6 +13,10 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
+# Import logging config from parent directory
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from logging_config import configure_logging
 
 enable_trace = False
@@ -91,7 +95,9 @@ async def lifespan(app: fastapi.FastAPI):
 
 def create_app():
     if not os.getenv("RUNNING_IN_PRODUCTION"):
-        load_dotenv(override=True)
+        # Load .env file from the src directory
+        env_path = os.path.join(os.path.dirname(__file__), "..", ".env")
+        load_dotenv(dotenv_path=env_path, override=True)
 
     global logger
     logger = configure_logging(os.getenv("APP_LOG_FILE", ""))

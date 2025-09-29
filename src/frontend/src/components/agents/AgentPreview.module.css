@@ -67,6 +67,12 @@
   color: var(--colorNeutralForegroundDisabled);
 }
 
+.orchestrationInfo {
+  color: var(--colorNeutralForeground3);
+  font-size: 12px;
+  margin-top: 2px;
+}
+
 .content {
   position: relative;
 

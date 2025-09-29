@@ -32,6 +32,14 @@ from azure.ai.projects.models import (
    EvaluatorIds
 )
 
+# Import the new SK orchestration service
+from .sk_orchestration_service import (
+    get_orchestration_service,
+    initialize_orchestration,
+    process_orchestrated_query,
+    cleanup_orchestration
+)
+
 
 # Create a logger for this module
 logger = logging.getLogger("azureaiapp")
@@ -426,3 +434,100 @@ async def get_azure_config(_ = auth_dependency):
     except Exception as e:
         logger.error(f"Error getting Azure config: {e}")
         raise HTTPException(status_code=500, detail="Failed to get Azure configuration")
+
+
+# SK Multi-Agent Orchestration Routes
+
+@router.post("/orchestration/initialize")
+async def initialize_sk_orchestration(
+    request: Request,
+    _ = auth_dependency
+):
+    """Initialize SK orchestration with multiple agent IDs."""
+    try:
+        data = await request.json()
+        agent_ids = data.get("agent_ids", [])
+        
+        if not agent_ids or not isinstance(agent_ids, list):
+            raise HTTPException(
+                status_code=400, 
+                detail="agent_ids must be a non-empty list of agent IDs"
+            )
+        
+        logger.info(f"Initializing SK orchestration with agents: {agent_ids}")
+        await initialize_orchestration(agent_ids)
+        
+        # Get service info
+        service = await get_orchestration_service()
+        info = service.get_agent_info()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "SK orchestration initialized successfully",
+            "agent_info": info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error initializing SK orchestration: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize orchestration: {str(e)}")
+
+
+@router.get("/orchestration/status")
+async def get_orchestration_status(_ = auth_dependency):
+    """Get the current status of SK orchestration."""
+    try:
+        service = await get_orchestration_service()
+        info = service.get_agent_info()
+        
+        return JSONResponse({
+            "status": "success",
+            "orchestration_info": info
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting orchestration status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get orchestration status: {str(e)}")
+
+
+@router.post("/orchestration/chat")
+async def orchestrated_chat(
+    request: Request,
+    _ = auth_dependency
+):
+    """Process a query using SK multi-agent orchestration."""
+    try:
+        data = await request.json()
+        query = data.get("query", "") or data.get("message", "")  # Accept both query and message for compatibility
+        
+        if not query:
+            raise HTTPException(status_code=400, detail="query or message is required")
+        
+        logger.info(f"Processing orchestrated query: {query}")
+        
+        # Process the query using orchestration
+        result = await process_orchestrated_query(query)
+        
+        return JSONResponse({
+            "status": "success",
+            "orchestration_result": result
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in orchestrated chat: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to process orchestrated query: {str(e)}")
+
+
+@router.post("/orchestration/cleanup")
+async def cleanup_sk_orchestration(_ = auth_dependency):
+    """Cleanup SK orchestration resources."""
+    try:
+        await cleanup_orchestration()
+        
+        return JSONResponse({
+            "status": "success",
+            "message": "SK orchestration resources cleaned up successfully"
+        })
+        
+    except Exception as e:
+        logger.error(f"Error cleaning up SK orchestration: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to cleanup orchestration: {str(e)}")

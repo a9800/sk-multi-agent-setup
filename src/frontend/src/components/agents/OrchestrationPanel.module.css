@@ -1,0 +1,85 @@
+.container {
+  padding: 16px;
+  max-width: 800px;
+}
+
+.card {
+  margin-bottom: 16px;
+}
+
+.cardBody {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.icon {
+  margin-right: 8px;
+}
+
+.messageBar {
+  margin-bottom: 8px;
+}
+
+.singleAgentInfo {
+  padding: 12px;
+  background-color: var(--colorNeutralBackground2);
+  border-radius: 4px;
+}
+
+.orchestrationControls {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.agentIdsInput {
+  width: 100%;
+}
+
+.buttonGroup {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.statusInfo {
+  padding: 12px;
+  background-color: var(--colorNeutralBackground2);
+  border-radius: 4px;
+  border-left: 4px solid var(--colorBrandBackground);
+}
+
+.querySection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background-color: var(--colorNeutralBackground1);
+  border-radius: 4px;
+  border: 1px solid var(--colorNeutralStroke2);
+}
+
+.messageInput {
+  width: 100%;
+}
+
+.result {
+  margin-top: 16px;
+  padding: 12px;
+  background-color: var(--colorNeutralBackground2);
+  border-radius: 4px;
+  border-left: 4px solid var(--colorBrandBackground);
+}
+
+.resultContent {
+  margin-top: 8px;
+  padding: 8px;
+  background-color: var(--colorNeutralBackground1);
+  border-radius: 4px;
+  font-family: 'Segoe UI', 'Roboto', monospace;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}

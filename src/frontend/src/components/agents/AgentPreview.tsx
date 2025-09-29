@@ -81,6 +81,11 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   const [messageList, setMessageList] = useState<IChatItem[]>([]);
   const [isResponding, setIsResponding] = useState(false);
   const [isLoadingChatHistory, setIsLoadingChatHistory] = useState(true);
+  
+  // Orchestration state
+  const [isOrchestrationMode, setIsOrchestrationMode] = useState(false);
+  const [orchestrationInitialized, setOrchestrationInitialized] = useState(false);
+  const [orchestrationAgentIds, setOrchestrationAgentIds] = useState("asst_zukqFOaveIg3MnsZKVNTlOYz,asst_4pgepxxILUlOPYhfJlwdIZtJ,asst_QodeNV9JgOLhp2nEG6pDFbLN");
 
   const loadChatHistory = async () => {
     try {
@@ -153,6 +158,69 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     setIsSettingsPanelOpen(isOpen);
   };
 
+  // Orchestration status fetching
+  const fetchOrchestrationStatus = async () => {
+    try {
+      const response = await fetch('/orchestration/status');
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'success') {
+          setOrchestrationInitialized(data.orchestration_info?.status === 'initialized');
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching orchestration status:', error);
+    }
+  };
+
+  // Orchestration management functions
+  const handleOrchestrationModeChange = (enabled: boolean) => {
+    console.log(`[OrchestrationToggle] Changing orchestration mode to: ${enabled}`);
+    setIsOrchestrationMode(enabled);
+    if (!enabled) {
+      // Clear orchestration state when disabling
+      console.log("[OrchestrationToggle] Disabling orchestration, clearing state");
+      setOrchestrationInitialized(false);
+    } else {
+      // Check current orchestration status when enabling
+      console.log("[OrchestrationToggle] Enabling orchestration, checking status");
+      fetchOrchestrationStatus();
+    }
+  };
+
+  const handleInitializeOrchestration = async () => {
+    try {
+      const response = await fetch('/orchestration/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agent_ids: orchestrationAgentIds.split(',').map(id => id.trim()) })
+      });
+      if (response.ok) {
+        await fetchOrchestrationStatus();
+      }
+    } catch (error) {
+      console.error('Error initializing orchestration:', error);
+    }
+  };
+
+  const handleCleanupOrchestration = async () => {
+    try {
+      const response = await fetch('/orchestration/cleanup', { method: 'POST' });
+      if (response.ok) {
+        setOrchestrationInitialized(false);
+      }
+    } catch (error) {
+      console.error('Error cleaning up orchestration:', error);
+    }
+  };
+
+  // Check orchestration status on component mount
+  useEffect(() => {
+    if (isOrchestrationMode) {
+      fetchOrchestrationStatus();
+    }
+  }, [isOrchestrationMode]);
+
   const newThread = () => {
     setMessageList([]);
     deleteAllCookies();
@@ -169,6 +237,8 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
   };
 
   const onSend = async (message: string) => {
+    console.log(`[ChatClient] onSend called - orchestrationMode: ${isOrchestrationMode}, initialized: ${orchestrationInitialized}`);
+    
     const userMessage: IChatItem = {
       id: `user-${Date.now()}`,
       content: message,
@@ -179,12 +249,36 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
     setMessageList((prev) => [...prev, userMessage]);
 
     try {
-      const postData = { message: message };
-      // IMPORTANT: Add credentials: 'include' if server cookies are critical
-      // and if your backend is on the same domain or properly configured for cross-site cookies.
+      // Double-check orchestration status if orchestration mode is enabled
+      let useOrchestration = isOrchestrationMode && orchestrationInitialized;
+      
+      if (isOrchestrationMode && !orchestrationInitialized) {
+        console.log("[ChatClient] Orchestration mode enabled but not initialized, checking status...");
+        
+        // Quick status check to see if orchestration is actually initialized
+        try {
+          const statusResponse = await fetch('/orchestration/status');
+          if (statusResponse.ok) {
+            const statusData = await statusResponse.json();
+            if (statusData.status === 'success' && statusData.orchestration_info?.status === 'initialized') {
+              console.log("[ChatClient] Orchestration is actually initialized, updating state and using orchestration");
+              setOrchestrationInitialized(true);
+              useOrchestration = true;
+            }
+          }
+        } catch (statusError) {
+          console.error("[ChatClient] Error checking orchestration status:", statusError);
+        }
+      }
 
+      // Choose endpoint based on orchestration mode AND initialization status
+      const endpoint = useOrchestration ? "/orchestration/chat" : "/chat";
+      const postData = useOrchestration ? { query: message } : { message: message };
+      
+      console.log(`[ChatClient] Using endpoint: ${endpoint} (orchestrationMode: ${isOrchestrationMode}, initialized: ${orchestrationInitialized}, useOrchestration: ${useOrchestration})`);
+      
       setIsResponding(true);
-      const response = await fetch("/chat", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -193,14 +287,14 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         credentials: "include", // <--- allow cookies to be included
       });
 
-      // Log out the response status in case there’s an error
+            // Log out the response status in case there's an error
       console.log(
         "[ChatClient] Response status:",
         response.status,
         response.statusText
       );
 
-      // If server returned e.g. 400 or 500, that’s not an exception, but we can check manually:
+      // If server returned e.g. 400 or 500, that's not an exception, but we can check manually:
       if (!response.ok) {
         console.error(
           "[ChatClient] Response not OK:",
@@ -210,14 +304,45 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         return;
       }
 
-      if (!response.body) {
-        throw new Error(
-          "ReadableStream not supported or response.body is null"
-        );
-      }
+      // Handle different response formats based on endpoint
+      if (useOrchestration) {
+        // Orchestration endpoint returns JSON
+        console.log("[ChatClient] Handling JSON response from orchestration endpoint...");
+        const jsonResponse = await response.json();
+        console.log("[ChatClient] Orchestration response:", jsonResponse);
+        
+        if (jsonResponse.status === 'success' && jsonResponse.orchestration_result) {
+          const assistantMessage: IChatItem = {
+            id: `assistant-${Date.now()}`,
+            content: jsonResponse.orchestration_result.result,
+            role: "assistant",
+            isAnswer: true,
+            more: { time: new Date().toISOString() },
+          };
+          setMessageList((prev) => [...prev, assistantMessage]);
+        } else {
+          // Handle error case
+          const errorMessage: IChatItem = {
+            id: `error-${Date.now()}`,
+            content: jsonResponse.error || "An error occurred during orchestration",
+            role: "assistant",
+            isAnswer: true,
+            more: { time: new Date().toISOString() },
+          };
+          setMessageList((prev) => [...prev, errorMessage]);
+        }
+        setIsResponding(false);
+      } else {
+        // Regular chat endpoint returns streaming response
+        if (!response.body) {
+          throw new Error(
+            "ReadableStream not supported or response.body is null"
+          );
+        }
 
-      console.log("[ChatClient] Starting to handle streaming response...");
-      handleMessages(response.body);
+        console.log("[ChatClient] Starting to handle streaming response...");
+        handleMessages(response.body);
+      }
     } catch (error: any) {
       setIsResponding(false);
       if (error.name === "AbortError") {
@@ -550,6 +675,14 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       <SettingsPanel
         isOpen={isSettingsPanelOpen}
         onOpenChange={handleSettingsPanelOpenChange}
+        isOrchestrationMode={isOrchestrationMode}
+        onOrchestrationModeChange={handleOrchestrationModeChange}
+        orchestrationAgentIds={orchestrationAgentIds}
+        onOrchestrationAgentIdsChange={setOrchestrationAgentIds}
+        orchestrationInitialized={orchestrationInitialized}
+        onInitializeOrchestration={handleInitializeOrchestration}
+        onCleanupOrchestration={handleCleanupOrchestration}
+        agentDetails={agentDetails}
       />
     </div>
   );
