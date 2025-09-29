@@ -403,6 +403,16 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       
       setIsResponding(true);
       
+      // Add thinking message to show processing state
+      const thinkingMessage: IChatItem = {
+        id: `thinking-${Date.now()}`,
+        content: useOrchestration ? "🤔 Multi-Agent is thinking..." : "🤔 Agent is thinking...",
+        role: "assistant",
+        isAnswer: true,
+        more: { time: new Date().toISOString() },
+      };
+      setMessageList((prev) => [...prev, thinkingMessage]);
+      
       // Start agent thinking polling if enabled and using orchestration
       const showAgentThinkingImmediate = (window as any).showAgentThinkingImmediate ?? showAgentThinking;
       if (useOrchestration && showAgentThinkingImmediate) {
@@ -446,6 +456,7 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
         console.log("[ChatClient] Orchestration response:", jsonResponse);
         
         if (jsonResponse.status === 'success' && jsonResponse.orchestration_result) {
+          // Remove thinking message and add actual response
           const assistantMessage: IChatItem = {
             id: `assistant-${Date.now()}`,
             content: jsonResponse.orchestration_result.result,
@@ -453,9 +464,13 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
             isAnswer: true,
             more: { time: new Date().toISOString() },
           };
-          setMessageList((prev) => [...prev, assistantMessage]);
+          setMessageList((prev) => {
+            // Remove the thinking message (last message) and add the actual response
+            const withoutThinking = prev.slice(0, -1);
+            return [...withoutThinking, assistantMessage];
+          });
         } else {
-          // Handle error case
+          // Handle error case - remove thinking message and add error
           const errorMessage: IChatItem = {
             id: `error-${Date.now()}`,
             content: jsonResponse.error || "An error occurred during orchestration",
@@ -463,7 +478,11 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
             isAnswer: true,
             more: { time: new Date().toISOString() },
           };
-          setMessageList((prev) => [...prev, errorMessage]);
+          setMessageList((prev) => {
+            // Remove the thinking message (last message) and add the error
+            const withoutThinking = prev.slice(0, -1);
+            return [...withoutThinking, errorMessage];
+          });
         }
         stopRespondingAndPolling();
       } else {
@@ -479,6 +498,22 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       }
     } catch (error: any) {
       stopRespondingAndPolling();
+      
+      // Remove thinking message and add error message
+      const errorMessage: IChatItem = {
+        id: `error-${Date.now()}`,
+        content: error.name === "AbortError" ? "Request was cancelled" : "An error occurred while processing your request",
+        role: "assistant",
+        isAnswer: true,
+        more: { time: new Date().toISOString() },
+      };
+      
+      setMessageList((prev) => {
+        // Remove the thinking message (last message) and add the error
+        const withoutThinking = prev.slice(0, -1);
+        return [...withoutThinking, errorMessage];
+      });
+      
       if (error.name === "AbortError") {
         console.log("[ChatClient] Fetch request aborted by user.");
       } else {
@@ -618,7 +653,11 @@ export function AgentPreview({ agentDetails }: IAgentPreviewProps): ReactNode {
       isAnswer: true,
       more: { time: new Date().toISOString() },
     };
-    setMessageList((prev) => [...prev, item]);
+    setMessageList((prev) => {
+      // Remove the thinking message (last message) and add the new assistant message
+      const withoutThinking = prev.slice(0, -1);
+      return [...withoutThinking, item];
+    });
     return item;
   };
   const appendAssistantMessage = (
